@@ -186,7 +186,29 @@ async function getCookie() {
 function createProxy(t, n) { return new Proxy(t, { get(t, r) { const c = t[r]; return "function" == typeof c ? async function (...r) { try { return await c.apply(t, r) } catch (r) { n.call(t, r) } } : c } }) }
 async function sendMsg(a, e) { a && ($.isNode() ? await notify.sendNotify($.name, a) : $.msg($.name, $.title || "", a, e)) }
 function DoubleLog(o) { o && ($.log(`${o}`), $.notifyMsg.push(`${o}`)) };
-async function checkEnv() { try { if (!userCookie?.length) throw new Error("no available accounts found"); $.log(`\n[INFO] 检测到 ${userCookie?.length ?? 0} 个账号\n`), $.userList.push(...userCookie.map((o => new UserInfo(o))).filter(Boolean)) } catch (o) { throw o } }
+async function checkEnv() {
+  try {
+    if (!userCookie?.length) throw new Error("未发现任何账号配置");
+
+    let validUsers = 0;
+    for (let i = 0; i < userCookie.length; i++) {
+      const u = userCookie[i];
+      if (u && u.wxa_session_id && u.uid && u.w_open_id) {
+        $.userList.push(new UserInfo(u));
+        validUsers++;
+      } else {
+        $.log(`⛔️ 第 ${i + 1} 个账号缺少必要字段，已跳过`);
+      }
+    }
+
+    if (validUsers === 0) throw new Error("未检测到有效账号（字段不全）");
+    $.log(`
+[INFO] 检测到 ${validUsers} 个有效账号
+`);
+  } catch (e) {
+    throw e;
+  }
+}
 function debug(g, e = "debug") { "true" === $.is_debug && ($.log(`\n-----------${e}------------\n`), $.log("string" == typeof g ? g : $.toStr(g) || `debug error => t=${g}`), $.log(`\n-----------${e}------------\n`)) }
 //From xream's ObjectKeys2LowerCase
 function ObjectKeys2LowerCase(obj) { return !obj ? {} : Object.fromEntries(Object.entries(obj).map(([k, v]) => [k.toLowerCase(), v])) };
