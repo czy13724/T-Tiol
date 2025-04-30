@@ -27,124 +27,109 @@ hostname = mini.tianfuld.com
 */
 
 const $ = new Env("天府绿道");
-const notify = $.isNode() ? require('./sendNotify') : '';
 const ckName = "tianfuld_data";
 const userCookie = $.toObj($.isNode() ? process.env[ckName] : $.getdata(ckName)) || [];
 
-$.userIdx = 0;
-$.userList = [];
-$.notifyMsg = [];
-$.succCount = 0;
+$.userIdx = 0, $.userList = [], $.notifyMsg = [], $.succCount = 0;
 $.is_debug = ($.isNode() ? process.env.IS_DEBUG : $.getdata('is_debug')) || 'false';
 
-// ✅ 用户类：封装请求逻辑、签到逻辑、积分查询等
-class UserInfo {
-    constructor(user) {
-        this.index = ++$.userIdx;
-        this.ckStatus = true;
-        this.token = user.token || user;
-        this.userName = user.userName || this.index;
-        this.avatar = user.avatar || "";
-        this.headers = {
-            "Content-Type": "application/json",
-            "Cookie": this.token,
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)"
-        };
-        this.baseUrl = `https://mini.tianfuld.com`;
-        return createProxy(this, this.handleError);
-    }
-
-    // ❌ 请求异常统一处理（标记 Cookie 失效）
-    handleError(error) {
-        this.ckStatus = false;
-        $.error(`[${this.userName}] 请求失败：${error.message}`);
-    }
-
-    // 🌐 封装请求方法，支持 GET/POST 请求合并调试输出
-    async fetch(o) {
-        const options = typeof o === 'string' ? { url: o } : o;
-        const url = new URL(options.url || '', this.baseUrl).href;
-        const res = await Request({
-            ...options,
-            headers: options.headers || this.headers,
-            url: url
-        });
-        debug(res, url.replace(/\/+$/, '').substring(url.lastIndexOf('/') + 1));
-        return res;
-    }
-
-    // 📩 调用签到接口，传递定位坐标并提交签到请求
-    async signin() {
-        const url = `/api/user/sign`;
-        const body = JSON.stringify({ latitude: "30.67", longitude: "104.06" });
-        const res = await this.fetch({
-            url,
-            method: "POST",
-            dataType: "json",
-            body
-        });
-        if (res?.code === 0) {
-            $.info(`[${this.userName}] 签到成功`);
-        } else {
-            throw new Error(res?.message || "签到失败");
-        }
-    }
-
-    // 💰 获取当前积分，用于签到前后对比
-    async getPoint() {
-        const res = await this.fetch(`/api/user/info`);
-        return res?.data?.score || 0;
-    }
-}
-
-// 🍪 捕获请求头中的 Cookie 并保存本地变量（多账号支持）
-async function getCookie() {
-    try {
-        const headers = ObjectKeys2LowerCase($request.headers);
-        const token = headers["cookie"];
-        if (!token) throw new Error("缺少 Cookie");
-
-        const newData = {
-            token,
-            userName: "默认用户"
-        };
-        const index = userCookie.findIndex(e => e.token === newData.token);
-        if (index !== -1) {
-            userCookie[index] = newData;
-        } else {
-            userCookie.push(newData);
-        }
-        $.setjson(userCookie, ckName);
-        $.msg($.name, `🎉 Cookie 保存成功`, ``);
-    } catch (e) {
-        throw e;
-    }
-}
-
-// 🚀 主执行入口：根据是否是请求环境决定是获取 Cookie 还是执行签到流程
 !(async () => {
-    if (typeof $request !== "undefined") {
-        await getCookie();
-    } else {
-        await checkEnv();
-        for (let user of $.userList) {
-            try {
-                const start = await user.getPoint();
-                await user.signin();
-                const end = await user.getPoint();
-                $.notifyMsg.push(`[${user.userName}] 积分：${start} → ${end}`);
-                $.succCount++;
-            } catch (e) {
-                $.notifyMsg.push(`[${user.userName}] 签到失败：${e.message}`);
-            }
-        }
-        $.title = `共${$.userList.length}个账号,成功${$.succCount}个,失败${$.userList.length - $.succCount}个`;
-        await sendMsg($.notifyMsg.join("\n"), { $media: $.avatar });
+  if (typeof $request != "undefined") {
+    await getCookie();
+  } else {
+    await checkEnv();
+    for (let user of $.userList) {
+      try {
+        const start = await user.getPoint();
+        await user.signin();
+        const end = await user.getPoint();
+        $.notifyMsg.push(`[${user.userName}] 积分：${start} → ${end}`);
+        $.succCount++;
+      } catch (e) {
+        $.notifyMsg.push(`[${user.userName}] 签到失败：${e.message}`);
+      }
     }
+    $.title = `共${$.userList.length}个账号，成功${$.succCount}个，失败${$.userList.length - $.succCount}个`;
+    await sendMsg($.notifyMsg.join("\n"));
+  }
 })()
-.catch((e) => { $.logErr(e), $.msg($.name, `⛔️ 执行出错`, e.message || e) })
-.finally(() => $.done());
+  .catch((e) => { $.logErr(e), $.msg($.name, `⛔️ 运行异常`, e.message || e) })
+  .finally(() => $.done());
 
+class UserInfo {
+  constructor(user) {
+    this.index = ++$.userIdx;
+    this.ckStatus = true;
+    this.token = user.token || user.cookie;
+    this.userName = user.userName || `账号${this.index}`;
+    this.avatar = user.avatar || "";
+    this.baseUrl = `https://mini.tianfuld.com`;
+    this.headers = {
+      "Content-Type": "application/json",
+      "Cookie": this.token,
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)"
+    };
+    return createProxy(this, this.handleError);
+  }
+
+  handleError(error) {
+    this.ckStatus = false;
+    $.error(`[${this.userName}] 发生错误: ${error.message}`);
+  }
+
+  async fetch(o) {
+    const options = typeof o === 'string' ? { url: o } : o;
+    const url = new URL(options.url || '', this.baseUrl).href;
+    const res = await Request({ ...options, headers: options.headers || this.headers, url });
+    debug(res, url.split("/").pop());
+    return res;
+  }
+
+  async signin() {
+    const res = await this.fetch({
+      url: `/api/user/sign`,
+      method: "POST",
+      body: JSON.stringify({ latitude: "30.67", longitude: "104.06" }),
+      dataType: "json"
+    });
+    if (res?.code === 0) {
+      $.info(`[${this.userName}] 签到成功`);
+    } else {
+      throw new Error(res?.message || "签到失败");
+    }
+  }
+
+  async getPoint() {
+    const res = await this.fetch(`/api/user/info`);
+    return res?.data?.score || 0;
+  }
+}
+
+async function getCookie() {
+  try {
+    const headers = ObjectKeys2LowerCase($request.headers);
+    const cookie = headers["cookie"];
+    if (!cookie) throw new Error("未获取到 Cookie");
+
+    const newData = {
+      token: cookie,
+      userName: "天府用户"
+    };
+
+    const index = userCookie.findIndex(e => e.token === newData.token);
+    if (index !== -1) {
+      userCookie[index] = newData;
+    } else {
+      userCookie.push(newData);
+    }
+    $.setjson(userCookie, ckName);
+    $.msg($.name, `🎉 更新 Cookie 成功`, ``);
+  } catch (e) {
+    throw e;
+  }
+}
+
+/** ---------------------------------固定不动区域----------------------------------------- */
 //prettier-ignore
 function createProxy(t, n) { return new Proxy(t, { get(t, r) { const c = t[r]; return "function" == typeof c ? async function (...r) { try { return await c.apply(t, r) } catch (r) { n.call(t, r) } } : c } }) }
 async function sendMsg(a, e) { a && ($.isNode() ? await notify.sendNotify($.name, a) : $.msg($.name, $.title || "", a, e)) }
