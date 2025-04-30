@@ -29,7 +29,11 @@ hostname = app-cdc.tfgreenroad.com
 // 初始化脚本环境对象
 const $ = new Env("天府绿道");
 const ckName = "tianfuld_data";
+
+// 从持久化存储中获取用户数据
 let userCookie = $.getdata(ckName) ? JSON.parse($.getdata(ckName)) : [];
+
+// Node环境下从环境变量读取配置
 if ($.isNode()) {
   if (process.env[ckName]) {
     try {
@@ -56,6 +60,11 @@ const commentList = [
   "下次一定参加"
 ];
 
+// 延时函数
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // 主程序入口（自动判断运行环境：抓Cookie or 执行任务）
 !(async () => {
   if (typeof $request !== "undefined") {
@@ -71,6 +80,9 @@ const commentList = [
         await user.signin();
         // 获取文章列表并执行分享和评论
         await user.getArticles();
+        // 执行骑行专区签到和分享
+        await user.cyclingLogin();
+        await user.cyclingShare();
         // 获取最新积分
         const endPoints = await user.getPoint();
         
@@ -85,7 +97,7 @@ const commentList = [
   }
 })()
   .catch((e) => { 
-    $.logErr(e);
+    $.log(e);
     $.msg($.name, `⛔️ 异常`, e.message || e);
   })
   .finally(() => $.done());
@@ -102,7 +114,7 @@ function UserInfo(user) {
   this.headers = {
     "Host": "app-cdc.tfgreenroad.com",
     "apptype": "miniprogram",
-    "user-agent": "Mozilla/5.0 MicroMessenger MiniProgram",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI MiniProgramEnv/Windows WindowsWechat/WMPF WindowsWechat(0x63090a13)",
     "content-type": "application/x-www-form-urlencoded",
     "wxa_session_id": this.wxa_session_id,
     "uid": this.uid,
@@ -115,13 +127,15 @@ function UserInfo(user) {
     try {
       const url = `/vip/member/v1/api/myPoints?tradeType=2`;
       const res = await this.fetch(url);
-      if (res?.data?.pointsNum) {
-        $.info(`[${this.userName}] 当前积分：${res.data.pointsNum}`);
+      if (res?.ret === 0 && res?.data?.pointsNum) {
+        $.log(`[${this.userName}] 当前积分：${res.data.pointsNum}`);
         return res.data.pointsNum;
+      } else {
+        $.log(`[${this.userName}] 获取积分失败: ${res?.msg || "未知错误"}`);
+        return 0;
       }
-      return 0;
     } catch (e) {
-      $.error(`[${this.userName}] 获取积分失败: ${e.message || e}`);
+      $.log(`[${this.userName}] 获取积分异常: ${e.message || e}`);
       return 0;
     }
   };
@@ -139,14 +153,15 @@ function UserInfo(user) {
       if (res?.ret === 0) {
         const days = res.data?.days || 0;
         const value = res.data?.value || 0;
-        $.info(`[${this.userName}] 签到成功，连续签到${days}天，获得${value}积分`);
+        $.log(`[${this.userName}] 签到成功，连续签到${days}天，获得${value}积分`);
         return true;
       } else {
-        throw new Error(res?.msg || "签到失败");
+        $.log(`[${this.userName}] 签到失败: ${res?.msg || "未知错误"}`);
+        return false;
       }
     } catch (e) {
-      $.error(`[${this.userName}] 签到异常: ${e.message || e}`);
-      throw e;
+      $.log(`[${this.userName}] 签到异常: ${e.message || e}`);
+      return false;
     }
   };
   
@@ -163,27 +178,23 @@ function UserInfo(user) {
           name: item.name
         }));
         
-        $.info(`[${this.userName}] 获取到${articles.length}篇文章`);
+        $.log(`[${this.userName}] 获取到${articles.length}篇文章`);
         
         // 执行分享和评论
         for (const article of articles) {
           await this.shareArticle(article);
           await this.commentArticle(article);
           // 等待一小段时间避免请求过快
-          await $.wait(1000);
+          await wait(1000);
         }
-        
-        // 执行骑行专区签到和分享
-        await this.cyclingLogin();
-        await this.cyclingShare();
-        
         return true;
       } else {
-        throw new Error("获取文章列表失败");
+        $.log(`[${this.userName}] 获取文章列表失败: ${res?.msg || "未知错误"}`);
+        return false;
       }
     } catch (e) {
-      $.error(`[${this.userName}] 文章处理异常: ${e.message || e}`);
-      throw e;
+      $.log(`[${this.userName}] 文章处理异常: ${e.message || e}`);
+      return false;
     }
   };
   
@@ -200,14 +211,14 @@ function UserInfo(user) {
       });
       
       if (res?.ret === 0) {
-        $.info(`[${this.userName}] 文章【${article.name}】分享成功`);
+        $.log(`[${this.userName}] 文章【${article.name}】分享成功`);
         return true;
       } else {
-        $.info(`[${this.userName}] 文章【${article.name}】分享失败: ${res?.msg || "未知错误"}`);
+        $.log(`[${this.userName}] 文章【${article.name}】分享失败: ${res?.msg || "未知错误"}`);
         return false;
       }
     } catch (e) {
-      $.error(`[${this.userName}] 文章分享异常: ${e.message || e}`);
+      $.log(`[${this.userName}] 文章分享异常: ${e.message || e}`);
       return false;
     }
   };
@@ -228,14 +239,14 @@ function UserInfo(user) {
       });
       
       if (res?.ret === 0) {
-        $.info(`[${this.userName}] 文章【${article.name}】评论成功`);
+        $.log(`[${this.userName}] 文章【${article.name}】评论成功`);
         return true;
       } else {
-        $.info(`[${this.userName}] 文章【${article.name}】评论失败: ${res?.msg || "未知错误"}`);
+        $.log(`[${this.userName}] 文章【${article.name}】评论失败: ${res?.msg || "未知错误"}`);
         return false;
       }
     } catch (e) {
-      $.error(`[${this.userName}] 文章评论异常: ${e.message || e}`);
+      $.log(`[${this.userName}] 文章评论异常: ${e.message || e}`);
       return false;
     }
   };
@@ -252,14 +263,14 @@ function UserInfo(user) {
       
       if (res?.ret === 0) {
         const value = res.data?.value || 0;
-        $.info(`[${this.userName}] 骑行专区签到成功，获得${value}积分`);
+        $.log(`[${this.userName}] 骑行专区签到成功，获得${value}积分`);
         return true;
       } else {
-        $.info(`[${this.userName}] 骑行专区签到失败: ${res?.msg || "未知错误"}`);
+        $.log(`[${this.userName}] 骑行专区签到失败: ${res?.msg || "未知错误"}`);
         return false;
       }
     } catch (e) {
-      $.error(`[${this.userName}] 骑行专区签到异常: ${e.message || e}`);
+      $.log(`[${this.userName}] 骑行专区签到异常: ${e.message || e}`);
       return false;
     }
   };
@@ -276,14 +287,14 @@ function UserInfo(user) {
       
       if (res?.ret === 0) {
         const value = res.data?.value || 0;
-        $.info(`[${this.userName}] 骑行专区分享成功，获得${value}积分`);
+        $.log(`[${this.userName}] 骑行专区分享成功，获得${value}积分`);
         return true;
       } else {
-        $.info(`[${this.userName}] 骑行专区分享失败: ${res?.msg || "未知错误"}`);
+        $.log(`[${this.userName}] 骑行专区分享失败: ${res?.msg || "未知错误"}`);
         return false;
       }
     } catch (e) {
-      $.error(`[${this.userName}] 骑行专区分享异常: ${e.message || e}`);
+      $.log(`[${this.userName}] 骑行专区分享异常: ${e.message || e}`);
       return false;
     }
   };
@@ -310,11 +321,14 @@ function UserInfo(user) {
       body
     };
     
+    debug(requestOptions, "请求参数");
+    
     try {
       const response = await httpRequest(requestOptions);
       debug(response, url.split("/").pop());
       return response;
     } catch (e) {
+      $.log(`HTTP请求错误: ${e.message || e}`);
       throw e;
     }
   };
@@ -326,19 +340,22 @@ async function getCookie() {
     if ($request && $request.method === 'OPTIONS') return;
     
     const url = $request.url || "";
+    $.log(`🌐 请求 URL: ${url}`);
+    
     if (!url.includes("app-cdc.tfgreenroad.com") || !url.includes("memberBaseInfo")) {
-      console.log("⛔️ 非目标地址，跳过");
+      $.log("⛔️ 非目标地址，跳过");
       return;
     }
     
     const headers = objectToLowerCase($request.headers || {});
-    const cookieRaw = headers["cookie"] || "";
+    $.log(`📦 原始 Headers: ${JSON.stringify(headers)}`);
     
-    console.log("🌐 请求 URL: " + url);
+    const cookieRaw = headers["cookie"] || "";
     
     const wxa_session_id = headers["wxa_session_id"];
     const uid = headers["uid"];
-    const w_open_id = cookieRaw.match(/w_open_id=([^;]+)/)?.[1];
+    const w_open_id_match = cookieRaw.match(/w_open_id=([^;]+)/);
+    const w_open_id = w_open_id_match ? w_open_id_match[1] : '';
     
     if (!wxa_session_id || !uid || !w_open_id) {
       throw new Error(`抓取失败: wxa_session_id=${wxa_session_id}, uid=${uid}, w_open_id=${w_open_id}`);
@@ -430,24 +447,41 @@ async function httpRequest(options = {}) {
     
     if (method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH') {
       requestOptions.body = body;
+      requestOptions.method = method; // 确保方法正确设置
     }
     
-    const httpMethod = $[method.toLowerCase()] || $.get;
-    
-    httpMethod(requestOptions, (err, resp, data) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      
-      try {
-        // 尝试解析 JSON
-        const result = typeof data === 'string' ? JSON.parse(data) : data;
-        resolve(result);
-      } catch (e) {
-        resolve(data);
-      }
-    });
+    // 根据方法选择相应的请求函数
+    if (method === 'GET') {
+      $.get(requestOptions, (err, resp, data) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        
+        try {
+          // 尝试解析 JSON
+          const result = typeof data === 'string' ? JSON.parse(data) : data;
+          resolve(result);
+        } catch (e) {
+          resolve(data);
+        }
+      });
+    } else {
+      $.post(requestOptions, (err, resp, data) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        
+        try {
+          // 尝试解析 JSON
+          const result = typeof data === 'string' ? JSON.parse(data) : data;
+          resolve(result);
+        } catch (e) {
+          resolve(data);
+        }
+      });
+    }
   });
 }
 
@@ -467,8 +501,13 @@ async function sendMsg(msg, opts = {}) {
   if (!msg) return;
   
   if ($.isNode()) {
-    const notify = require('./sendNotify');
-    await notify.sendNotify($.name, msg);
+    try {
+      const notify = require('./sendNotify');
+      await notify.sendNotify($.name, msg);
+    } catch (e) {
+      $.log(`Node环境通知发送失败: ${e.message}`);
+      console.log(msg);
+    }
   } else {
     $.msg($.name, $.title || "", msg, opts);
   }
