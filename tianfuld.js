@@ -17,13 +17,13 @@ Description: 支持多平台（Surge、Loon、Stash、QX）运行的天府绿道
 
 /*
 [rewrite_local]
-^https:\/\/mini\.tianfuld\.com\/api\/user\/info url script-request-header https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js
+^https:\app-cdc.tfgreenroad.com url script-request-header https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js
 
 [task_local]
 0 8 * * * https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js, tag=天府绿道签到, enabled=true
 
 [MITM]
-hostname = mini.tianfuld.com
+hostname = app-cdc.tfgreenroad.com
 */
 
 const $ = new Env("天府绿道");
@@ -42,39 +42,47 @@ $.is_debug = ($.isNode() ? process.env.IS_DEBUG : $.getdata('is_debug')) || 'fal
       try {
         const start = await user.getPoint();
         await user.signin();
+        await user.comment();
         const end = await user.getPoint();
-        $.notifyMsg.push(`[${user.userName}] 积分：${start} → ${end}`);
+        $.notifyMsg.push(`[${user.userName}] 积分: ${start} → ${end}`);
         $.succCount++;
       } catch (e) {
-        $.notifyMsg.push(`[${user.userName}] 签到失败：${e.message}`);
+        $.notifyMsg.push(`[${user.userName}] 执行失败：${e.message}`);
       }
     }
-    $.title = `共${$.userList.length}个账号，成功${$.succCount}个，失败${$.userList.length - $.succCount}个`;
+    $.title = `共${$.userList.length}账号，成功${$.succCount}个`;
     await sendMsg($.notifyMsg.join("\n"));
   }
 })()
-  .catch((e) => { $.logErr(e), $.msg($.name, `⛔️ 运行异常`, e.message || e) })
+  .catch((e) => { $.logErr(e), $.msg($.name, `⛔️ 异常`, e.message || e) })
   .finally(() => $.done());
 
 class UserInfo {
   constructor(user) {
     this.index = ++$.userIdx;
     this.ckStatus = true;
-    this.token = user.token || user.cookie;
+    this.token = user.token;
+    this.wxa_session_id = user.wxa_session_id;
+    this.uid = user.uid;
+    this.w_open_id = user.w_open_id;
     this.userName = user.userName || `账号${this.index}`;
-    this.avatar = user.avatar || "";
-    this.baseUrl = `https://mini.tianfuld.com`;
+    this.baseUrl = `https://app-cdc.tfgreenroad.com`;
     this.headers = {
-      "Content-Type": "application/json",
-      "Cookie": this.token,
-      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)"
+      "Host": "app-cdc.tfgreenroad.com",
+      "apptype": "miniprogram",
+      "user-agent": "Mozilla/5.0 MicroMessenger MiniProgram",
+      "content-type": "application/x-www-form-urlencoded",
+      "wxa_session_id": this.wxa_session_id,
+      "uid": this.uid,
+      "accept": "*/*",
+      "cookie": `w_uid=${this.uid}; w_open_id=${this.w_open_id};`
     };
     return createProxy(this, this.handleError);
   }
 
   handleError(error) {
     this.ckStatus = false;
-    $.error(`[${this.userName}] 发生错误: ${error.message}`);
+    $.error(`[${this.userName}] 错误: ${error.message}`);
   }
 
   async fetch(o) {
@@ -85,31 +93,42 @@ class UserInfo {
     return res;
   }
 
-  async signin() {
-    const res = await this.fetch({
-      url: `/api/user/sign`,
-      method: "POST",
-      body: JSON.stringify({ latitude: "30.67", longitude: "104.06" }),
-      dataType: "json"
-    });
-    if (res?.code === 0) {
-      $.info(`[${this.userName}] 签到成功`);
-    } else {
-      throw new Error(res?.message || "签到失败");
-    }
+  async getPoint() {
+    const url = `/vip/member/v1/api/myPoints?tradeType=2`;
+    const res = await this.fetch(url);
+    return res?.result?.point || 0;
   }
 
-  async getPoint() {
-    const res = await this.fetch(`/api/user/info`);
-    return res?.data?.score || 0;
+  async signin() {
+    const url = `/vip/member/v1/api/signIn`;
+    const res = await this.fetch({ url, method: "POST", body: "" });
+    if (res?.code !== 0) throw new Error(res?.msg || "签到失败");
+    $.info(`[${this.userName}] 签到成功`);
+  }
+
+  async comment() {
+    const list = await this.fetch("/vip/interaction/v1/api/commentList?pageSize=10&pageNum=1");
+    const moduleId = list?.result?.rows?.[0]?.moduleId;
+    if (!moduleId) throw new Error("获取评论目标失败");
+
+    const commentList = ["真是太棒了", "绿道很漂亮", "很有意义啊", "期待更多活动", "下次一定参加"];
+    const content = commentList[Math.floor(Math.random() * commentList.length)];
+
+    const body = `content=${encodeURIComponent(content)}&moduleId=${moduleId}&type=1`;
+    const res = await this.fetch({
+      url: "/vip/interaction/v1/api/addComment",
+      method: "POST",
+      body
+    });
+
+    if (res?.code !== 0) throw new Error("评论失败");
+    $.info(`[${this.userName}] 评论成功`);
   }
 }
-
 
 async function getCookie() {
   try {
     if ($request && $request.method === 'OPTIONS') return;
-
     const headers = ObjectKeys2LowerCase($request.headers);
     const cookie = headers["cookie"];
     const url = $request.url || "";
@@ -121,13 +140,14 @@ async function getCookie() {
     const uidMatch = cookie.match(/uid=([^;\s]*)/);
     const openidMatch = cookie.match(/w_open_id=([^;\s]*)/);
 
-    if (!sessionMatch || !uidMatch || !openidMatch) throw new Error("缺少关键字段");
+    if (!sessionMatch || !uidMatch || !openidMatch) throw new Error("缺少字段");
 
     const newData = {
       wxa_session_id: sessionMatch[1],
       uid: uidMatch[1],
       w_open_id: openidMatch[1].replace(/;$/, ""),
-      userName: uidMatch[1]
+      userName: uidMatch[1],
+      token: cookie
     };
 
     const index = userCookie.findIndex(e => e.uid === newData.uid);
@@ -138,20 +158,12 @@ async function getCookie() {
     }
 
     $.setjson(userCookie, ckName);
-    $.msg($.name, `✅ 获取账号成功: [${newData.userName}]`, ``);
+    $.msg($.name, `✅ 获取账号: [${newData.userName}] 成功`, ``);
   } catch (e) {
-    $.msg($.name, `❌ Cookie 获取失败`, e.message || e);
-  }
-}
-    $.setjson(userCookie, ckName);
-    $.msg($.name, `🎉 更新 Cookie 成功`, ``);
-  } catch (e) {
-    throw e;
+    $.msg($.name, `❌ Cookie 抓取失败`, e.message || e);
   }
 }
 
-/** ---------------------------------固定不动区域----------------------------------------- */
-//prettier-ignore
 function createProxy(t, n) { return new Proxy(t, { get(t, r) { const c = t[r]; return "function" == typeof c ? async function (...r) { try { return await c.apply(t, r) } catch (r) { n.call(t, r) } } : c } }) }
 async function sendMsg(a, e) { a && ($.isNode() ? await notify.sendNotify($.name, a) : $.msg($.name, $.title || "", a, e)) }
 function DoubleLog(o) { o && ($.log(`${o}`), $.notifyMsg.push(`${o}`)) };
