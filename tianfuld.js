@@ -142,18 +142,24 @@ class UserInfo {
 async function getCookie() {
   try {
     if ($request && $request.method === 'OPTIONS') return;
-    const headers = ObjectKeys2LowerCase($request.headers);
-    const cookie = headers["cookie"] || "";
+    const headers = ObjectKeys2LowerCase($request.headers || {});
+    const cookieRaw = headers["cookie"] || "";
     const url = $request.url || "";
 
-    if (!url.includes("memberBaseInfo")) return;
+    console.log("🌐 请求 URL: " + url);
+    console.log("📦 原始 Headers: " + JSON.stringify(headers, null, 2));
+
+    if (!url.includes("memberBaseInfo")) {
+      console.log("⛔️ 非目标地址，跳过");
+      return;
+    }
 
     const wxa_session_id = headers["wxa_session_id"];
     const uid = headers["uid"];
-    const w_open_id = cookie.match(/w_open_id=([^;\s]*)/)?.[1];
+    const w_open_id = cookieRaw.match(/w_open_id=([^;]+)/)?.[1];
 
     if (!wxa_session_id || !uid || !w_open_id) {
-      throw new Error("缺少 wxa_session_id、uid 或 w_open_id");
+      throw new Error(`抓取失败: wxa_session_id=${wxa_session_id}, uid=${uid}, w_open_id=${w_open_id}`);
     }
 
     const newData = {
@@ -171,16 +177,9 @@ async function getCookie() {
     }
 
     $.setjson(userCookie, ckName);
-    $.msg($.name, `✅ 获取账号成功: [${uid}]`, ``);
+    $.msg($.name, `✅ 成功获取账号: [${uid}]`, ``);
   } catch (e) {
-    $.msg($.name, `❌ Cookie 获取失败`, e.message || e);
-  }
-}
-
-    $.setjson(userCookie, ckName);
-    $.msg($.name, `✅ 获取账号: [${newData.userName}] 成功`, ``);
-  } catch (e) {
-    $.msg($.name, `❌ Cookie 抓取失败`, e.message || e);
+    $.msg($.name, `❌ 获取失败`, e.message);
   }
 }
 
