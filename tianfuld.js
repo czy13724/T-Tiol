@@ -36,27 +36,40 @@ $.is_debug = ($.isNode() ? process.env.IS_DEBUG : $.getdata('is_debug')) || 'fal
 
 
 // 主程序入口（自动判断运行环境：抓Cookie or 执行任务）
+// 主程序入口（自动判断运行环境：抓Cookie or 执行任务）
 !(async () => {
-  if (typeof $request != "undefined") {
-    await getCookie();
-  } else {
-    await checkEnv();
-    for (let user of $.userList) {
-      try {
-        const start = await user.getPoint();
-        await user.signin();
-        await user.comment();
-        const end = await user.getPoint();
-        $.notifyMsg.push(`[${user.userName}] 积分: ${start} → ${end}`);
-        $.succCount++;
-      } catch (e) {
-        $.notifyMsg.push(`[${user.userName}] 执行失败：${e.message}`);
-      }
+  try {
+    if (typeof $request !== "undefined") {
+      await getCookie();
+    } else {
+      await main();
     }
-    $.title = `共${$.userList.length}账号，成功${$.succCount}个`;
-    await sendMsg($.notifyMsg.join("\n"));
+  } catch (e) {
+    $.logErr(e);
+  } finally {
+    $.done();
   }
-})()
+})();
+
+// 主流程封装（执行所有账号任务）
+async function main() {
+  await checkEnv();
+  for (const user of $.userList) {
+    try {
+      const start = await user.getPoint();
+      await user.signin();
+      await user.comment();
+      const end = await user.getPoint();
+      $.notifyMsg.push(`[${user.userName}] 积分: ${start} → ${end}`);
+      $.succCount++;
+    } catch (err) {
+      $.notifyMsg.push(`[${user.userName}] 执行失败：${err.message}`);
+    }
+  }
+  $.title = `共${$.userList.length}账号，成功${$.succCount}个`;
+  await sendMsg($.notifyMsg.join("
+"));
+}
   .catch((e) => { $.logErr(e), $.msg($.name, `⛔️ 异常`, e.message || e) })
   .finally(() => $.done());
 
