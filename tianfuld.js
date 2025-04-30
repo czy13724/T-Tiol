@@ -17,7 +17,7 @@ Description: 支持多平台（Surge、Loon、Stash、QX）运行的天府绿道
 
 /*
 [rewrite_local]
-^https:\app-cdc.tfgreenroad.com url script-request-header https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js
+^https://app-cdc.tfgreenroad.com/vip/member/v1/api/memberBaseInfo url script-request-header https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js
 
 [task_local]
 0 8 * * * https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js, tag=天府绿道签到, enabled=true
@@ -26,6 +26,7 @@ Description: 支持多平台（Surge、Loon、Stash、QX）运行的天府绿道
 hostname = app-cdc.tfgreenroad.com
 */
 
+// 初始化脚本环境对象
 const $ = new Env("天府绿道");
 const ckName = "tianfuld_data";
 const userCookie = $.toObj($.isNode() ? process.env[ckName] : $.getdata(ckName)) || [];
@@ -33,6 +34,8 @@ const userCookie = $.toObj($.isNode() ? process.env[ckName] : $.getdata(ckName))
 $.userIdx = 0, $.userList = [], $.notifyMsg = [], $.succCount = 0;
 $.is_debug = ($.isNode() ? process.env.IS_DEBUG : $.getdata('is_debug')) || 'false';
 
+
+// 主程序入口（自动判断运行环境：抓Cookie or 执行任务）
 !(async () => {
   if (typeof $request != "undefined") {
     await getCookie();
@@ -57,6 +60,8 @@ $.is_debug = ($.isNode() ? process.env.IS_DEBUG : $.getdata('is_debug')) || 'fal
   .catch((e) => { $.logErr(e), $.msg($.name, `⛔️ 异常`, e.message || e) })
   .finally(() => $.done());
 
+
+// 用户信息类（封装签到、评论、积分操作）
 class UserInfo {
   constructor(user) {
     this.index = ++$.userIdx;
@@ -80,11 +85,13 @@ class UserInfo {
     return createProxy(this, this.handleError);
   }
 
+  // 错误处理代理函数
   handleError(error) {
     this.ckStatus = false;
     $.error(`[${this.userName}] 错误: ${error.message}`);
   }
 
+  // 通用请求方法（自动拼接 baseURL 和请求头）
   async fetch(o) {
     const options = typeof o === 'string' ? { url: o } : o;
     const url = new URL(options.url || '', this.baseUrl).href;
@@ -93,12 +100,14 @@ class UserInfo {
     return res;
   }
 
+  // 查询当前积分
   async getPoint() {
     const url = `/vip/member/v1/api/myPoints?tradeType=2`;
     const res = await this.fetch(url);
     return res?.result?.point || 0;
   }
 
+  // 执行签到任务
   async signin() {
     const url = `/vip/member/v1/api/signIn`;
     const res = await this.fetch({ url, method: "POST", body: "" });
@@ -106,6 +115,7 @@ class UserInfo {
     $.info(`[${this.userName}] 签到成功`);
   }
 
+  // 执行评论任务（获取 moduleId 并发送随机评论）
   async comment() {
     const list = await this.fetch("/vip/interaction/v1/api/commentList?pageSize=10&pageNum=1");
     const moduleId = list?.result?.rows?.[0]?.moduleId;
@@ -126,28 +136,31 @@ class UserInfo {
   }
 }
 
+
+
+// Cookie 捕获逻辑（拦截 memberBaseInfo 请求并提取必要字段）
 async function getCookie() {
   try {
     if ($request && $request.method === 'OPTIONS') return;
     const headers = ObjectKeys2LowerCase($request.headers);
-    const cookie = headers["cookie"];
+    const cookie = headers["cookie"] || "";
     const url = $request.url || "";
 
     if (!url.includes("memberBaseInfo")) return;
-    if (!cookie) throw new Error("未获取到 Cookie");
 
-    const sessionMatch = cookie.match(/wxa_session_id=([^;\s]*)/);
-    const uidMatch = cookie.match(/uid=([^;\s]*)/);
-    const openidMatch = cookie.match(/w_open_id=([^;\s]*)/);
+    const wxa_session_id = headers["wxa_session_id"];
+    const uid = headers["uid"];
+    const w_open_id = cookie.match(/w_open_id=([^;\s]*)/)?.[1];
 
-    if (!sessionMatch || !uidMatch || !openidMatch) throw new Error("缺少字段");
+    if (!wxa_session_id || !uid || !w_open_id) {
+      throw new Error("缺少 wxa_session_id、uid 或 w_open_id");
+    }
 
     const newData = {
-      wxa_session_id: sessionMatch[1],
-      uid: uidMatch[1],
-      w_open_id: openidMatch[1].replace(/;$/, ""),
-      userName: uidMatch[1],
-      token: cookie
+      wxa_session_id,
+      uid,
+      w_open_id: w_open_id.replace(/;$/, ""),
+      userName: uid
     };
 
     const index = userCookie.findIndex(e => e.uid === newData.uid);
@@ -156,6 +169,13 @@ async function getCookie() {
     } else {
       userCookie.push(newData);
     }
+
+    $.setjson(userCookie, ckName);
+    $.msg($.name, `✅ 获取账号成功: [${uid}]`, ``);
+  } catch (e) {
+    $.msg($.name, `❌ Cookie 获取失败`, e.message || e);
+  }
+}
 
     $.setjson(userCookie, ckName);
     $.msg($.name, `✅ 获取账号: [${newData.userName}] 成功`, ``);
