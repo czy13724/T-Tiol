@@ -17,17 +17,18 @@ Description: 支持多平台（Surge、Loon、Stash、QuantumultX），自行测
 
 /*
 [rewrite_local]
-^https://app-cdc\.tfgreenroad\.com/vip/member/v1/api/memberBaseInfo url script-request-header https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js
-
+^https:\/\/app-cdc\.tfgreenroad\.com\/vip\/member\/v1\/api\/memberBaseInfo$ url script-request-header https://raw.githubusercontent.com/czy13724/Quantumult-X/main/scripts/cdtfld.js
 [task_local]
 0 8 * * * https://raw.githubusercontent.com/czy13724/T-Tiol/refs/heads/Levi/tianfuld.js, tag=成都天府绿道签到, enabled=true
-
 [MITM]
 hostname = app-cdc.tfgreenroad.com
+------------------------------------
+成都天府绿道获取token = type=http-request,pattern=^https:\/\/app-cdc\.tfgreenroad\.com\/vip\/member\/v1\/api\/memberBaseInfo$,requires-body=1,script-path=https://raw.githubusercontent.com/czy13724/Quantumult-X/main/scripts/cdtfld.js
+成都天府绿道签到 = type=cron,cronexp=12 9 * * *,script-path=https://raw.githubusercontent.com/czy13724/Quantumult-X/main/scripts/cdtfld.js,script-update-interval=0,timeout=6000
 */
 
 // 初始化脚本环境对象
-const $ = new Env("天府绿道");
+const $ = new Env("成都天府绿道");
 const ckName = "cdtfld_data";
 
 // 从持久化存储中获取用户数据
