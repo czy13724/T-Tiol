@@ -31,7 +31,7 @@ def get_v2ray_links(url):
         return None
 
 def save_all_configs(configs):
-    with open("Subs.txt", "w", encoding="utf-8") as f:
+    with open("update-subs.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(configs))
 
 if __name__ == "__main__":
@@ -140,6 +140,6 @@ if __name__ == "__main__":
         unique_configs = list(set(all_v2ray_configs))
         # 保存到Subs.txt
         save_all_configs(unique_configs)
-        print(f"Saved { len(unique_configs) } unique configs to Subs.txt")
+        print(f"Saved { len(unique_configs) } unique configs to update-subs.txt")
     else:
         print("No V2Ray configs found.")
