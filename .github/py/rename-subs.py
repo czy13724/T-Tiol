@@ -6,20 +6,34 @@
 # -*- coding: utf-8 -*-
 
 import requests
+import re
 from collections import defaultdict
 import pycountry
 
-STORED_FILE = "stored-subs.txt"
-OUTPUT_FILE = "upgrade-subs.txt"
+STORED_FILE  = "stored-subs.txt"
+OUTPUT_FILE  = "upgrade-subs.txt"
+# 支持的协议列表，如有更多可继续补充
+PROTOCOLS = ["vmess", "ss", "ssr", "trojan", "vless", "socks5", "shadowsocks", "hy", "hy2", "hysteria", "hysteria2", "snell", "https", "http"]
 
-def fetch_lines(url: str) -> list[str]:
-    """Fetch each non-empty line from the given URL."""
+def fetch_raw_entries(url: str) -> list[str]:
+    """
+    拉取 URL 的原始文本，按协议前缀（协议名://）切分成完整的订阅条目。
+    这样即便条目中间有换行，也能保证每个 entry 都是一个完整的字符串。
+    """
     r = requests.get(url)
     r.raise_for_status()
-    return [line.strip() for line in r.text.splitlines() if line.strip()]
+    text = r.text.replace('\r', '')  # 统一换行符
+
+    # 构造正则：在任何协议前面切分，保留协议前缀 严格匹配 “协议名://”，只在真正的协议头处分割
+    proto_pattern = r'(?=(?:' + '|'.join(PROTOCOLS) + r')://)'
+    parts = re.split(proto_pattern, text, flags=re.IGNORECASE)
+
+    # 去除可能的空白，并确保每段以协议开头
+    entries = [p.strip() for p in parts if p.strip()]
+    return entries
 
 def build_country_map() -> dict[str, tuple[str,str]]:
-    cmap: dict[str, tuple[str,str]] = {}
+    cmap = {}
     for c in pycountry.countries:
         flag = "".join(chr(ord(ch) + 127397) for ch in c.alpha_2)
         cmap[c.name.lower()]    = (flag, c.name)
@@ -27,7 +41,7 @@ def build_country_map() -> dict[str, tuple[str,str]]:
     return cmap
 
 def build_subregion_map() -> dict[str, tuple[str,str,str]]:
-    smap: dict[str, tuple[str,str,str]] = {}
+    smap = {}
     for sub in pycountry.subdivisions:
         parent = pycountry.countries.get(alpha_2=sub.country_code)
         if not parent: continue
@@ -39,10 +53,9 @@ def normalize_names(old_names: list[str],
                     country_map: dict[str,tuple[str,str]],
                     sub_map: dict[str,tuple[str,str,str]]
                    ) -> dict[str,str]:
-    """输入旧节点名，输出新节点名（不含订阅前缀）。"""
     country_cnt   = defaultdict(int)
     subregion_cnt = defaultdict(int)
-    mapping: dict[str,str] = {}
+    mapping = {}
 
     for orig in old_names:
         key = orig.lower()
@@ -54,50 +67,59 @@ def normalize_names(old_names: list[str],
                 mapping[orig] = f"{f}-{country}-{region}-{subregion_cnt[grp]:04d}"
                 break
         else:
-            # 2. 国家匹配
+            # 2. 再匹配国家
             for kw,(f,country) in country_map.items():
                 if kw in key:
                     country_cnt[country] += 1
                     mapping[orig] = f"{f}-{country}-{country_cnt[country]:04d}"
                     break
             else:
-                # 3. 兜底“其他”
+                # 3. 都不匹配 → Other
                 country_cnt["Other"] += 1
                 mapping[orig] = f"🌐-Other-{country_cnt['Other']:04d}"
 
     return mapping
 
 def main():
-    # 1. 读 URL 列表
+    # 1. 读取所有 subscription 链接
     with open(STORED_FILE, encoding="utf-8") as f:
         urls = [l.strip() for l in f if l.strip()]
 
-    # 2. 拉取并去重
-    all_lines = []
+    # 2. 按协议切分、合并、去重
+    raw_entries = []
     for url in urls:
-        all_lines.extend(fetch_lines(url))
-    unique_lines = list(dict.fromkeys(all_lines))
+        raw_entries.extend(fetch_raw_entries(url))
+    seen = set()
+    unique_entries = []
+    for e in raw_entries:
+        if e not in seen:
+            seen.add(e)
+            unique_entries.append(e)
 
-    # 3. 提取旧节点名（# 之后部分），若无 # 则整个当名
+    # 3. 提取每条 entry 的「旧名称」
+    prefixes = []
     old_names = []
-    for line in unique_lines:
-        if '#' in line:
-            old_names.append(line.rsplit('#', 1)[1])
+    for entry in unique_entries:
+        if "#" in entry:
+            pre, old = entry.rsplit("#", 1)
+            prefixes.append(pre)
+            old_names.append(old)
         else:
-            old_names.append(line)
+            prefixes.append(entry)
+            old_names.append(entry)  # 没有 # 的，就当整个 entry 是名称
 
-    # 4. 构建映射表并规范化
+    # 4. 构建映射表并规范化名称
     country_map   = build_country_map()
     subregion_map = build_subregion_map()
     name_map      = normalize_names(old_names, country_map, subregion_map)
 
-    # 5. 写入完整订阅行：前缀 + # + 新名称
+    # 5. 输出到 upgrade-subs.txt
     with open(OUTPUT_FILE, "w", encoding="utf-8") as fw:
-        for line, old in zip(unique_lines, old_names):
-            prefix = line.rsplit('#',1)[0] if '#' in line else line
-            fw.write(f"{prefix}#{name_map[old]}\n")
+        for pre, old in zip(prefixes, old_names):
+            new_name = name_map[old]
+            fw.write(f"{pre}#{new_name}\n")
 
-    print(f"✅ Generated {OUTPUT_FILE} with {len(name_map)} nodes.")
+    print(f"✅ Generated {OUTPUT_FILE} with {len(name_map)} entries.")
 
 if __name__ == "__main__":
     main()
