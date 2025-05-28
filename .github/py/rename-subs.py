@@ -110,8 +110,9 @@ def main():
 
     # 写入输出文件
     with open(OUTPUT_FILE, "w", encoding="utf-8") as fw:
-        for old, new in mapping.items():
-            fw.write(f"{old} → {new}\n")
+        # 只输出新名称
+        for orig in unique_names:
+            fw.write(f"{mapping[orig]}\n")
 
     print(f"✅ Generated {OUTPUT_FILE} with {len(mapping)} entries.")
 
