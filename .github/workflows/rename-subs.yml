@@ -28,7 +28,7 @@ jobs:
           pip install requests pycountry
 
       - name: Run normalization
-        run: python rename-subs.py
+        run: python .github/py/rename-subs.py
 
       - name: Commit & Push
         run: |
