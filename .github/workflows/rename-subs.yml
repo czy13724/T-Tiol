@@ -27,13 +27,15 @@ jobs:
           pip install --upgrade pip
           pip install requests pycountry
 
-      - name: Run normalization
+      - name: Run rename-subs
         run: python .github/py/rename-subs.py
 
-      - name: Commit & Push
+
+      - name: Configure Git
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
           git add upgrade-subs.txt
-          git diff --quiet || git commit -m "🔄 update upgrade-subs.txt"
+          git diff --quiet || git commit -m ""🔄 update upgrade-subs.txt"✔ - $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
+          git pull --rebase origin main
           git push
