@@ -13,7 +13,7 @@ import pycountry
 STORED_FILE  = "stored-subs.txt"
 OUTPUT_FILE  = "upgrade-subs.txt"
 # 支持的协议列表，如有更多可继续补充
-PROTOCOLS = ["vmess", "ss", "ssr", "trojan", "vless", "socks5", "shadowsocks", "hy", "hy2", "hysteria", "hysteria2", "snell", "https", "http"]
+PROTOCOLS = ["vmess", "ss", "ssr", "trojan", "vless", "socks5", "shadowsocks", "hy", "hy2", "hysteria", "hysteria2", "snell", "wireguard", "https", "http"]
 
 def fetch_raw_entries(url: str) -> list[str]:
     """
