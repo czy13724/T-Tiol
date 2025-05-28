@@ -14,8 +14,8 @@ import re
 
 # 自然地理数据存放路径 数据目录和Natural Earth 下载链接
 DATA_DIR      = "natural_earth"
-NE_ADMIN0_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/10m_cultural/ne_10m_admin_0_countries.zip"
-NE_ADMIN1_URL = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/10m_cultural/ne_10m_admin_1_states_provinces.zip"
+NE_ADMIN0_URL = "https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/cultural/10m_cultural.zip"
+NE_ADMIN1_URL = "https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/cultural/10m_cultural.zip"
 
 STORED_FILE  = "stored-subs.txt"
 OUTPUT_FILE  = "upgrade-subs.txt"
