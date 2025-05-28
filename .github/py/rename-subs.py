@@ -5,75 +5,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
-import zipfile
-import requests
-from collections import defaultdict
-import geopandas as gpd
-import pycountry
 import re
-
-# 自然地理数据存放路径 数据目录和Natural Earth 下载链接
-DATA_DIR      = "natural_earth"
-NE_ADMIN0_URL = "https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/cultural/10m_cultural.zip"
-NE_ADMIN1_URL = "https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/cultural/10m_cultural.zip"
+import time
+from collections import defaultdict
+import requests
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 
 STORED_FILE  = "stored-subs.txt"
 OUTPUT_FILE  = "upgrade-subs.txt"
 # 支持的协议列表，如有更多可继续补充
 PROTOCOLS = ["vmess", "ss", "ssr", "trojan", "vless", "socks5", "shadowsocks", "hy", "hy2", "hysteria", "hysteria2", "snell", "wireguard", "https", "http"]
 
+# 初始化 Nominatim
+geolocator = Nominatim(user_agent="normalize_nodes")
+geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
 
-def download_and_unzip(url: str, extract_to: str):
-    """下载并解压 zip 文件到指定目录（已存在则跳过下载）。"""
-    os.makedirs(extract_to, exist_ok=True)
-    local_zip = os.path.join(extract_to, os.path.basename(url))
-    if not os.path.exists(local_zip):
-        print(f"Downloading {url} …")
-        r = requests.get(url)
-        r.raise_for_status()
-        with open(local_zip, "wb") as f:
-            f.write(r.content)
-    with zipfile.ZipFile(local_zip, "r") as z:
-        z.extractall(extract_to)
+# 将 ISO2 转为国旗
+def flag_from_iso2(iso2: str) -> str:
+    return ''.join(chr(ord(ch) + 127397) for ch in iso2.upper())
 
-
-def load_ne_layers():
-    """加载 Natural Earth Admin0/1 数据。"""
-    download_and_unzip(NE_ADMIN0_URL, DATA_DIR)
-    download_and_unzip(NE_ADMIN1_URL, DATA_DIR)
-    admin0_shp = next(fp for fp in os.listdir(DATA_DIR) if fp.endswith("ne_10m_admin_0_countries.shp"))
-    admin1_shp = next(fp for fp in os.listdir(DATA_DIR) if fp.endswith("ne_10m_admin_1_states_provinces.shp"))
-    gdf0 = gpd.read_file(os.path.join(DATA_DIR, admin0_shp))
-    gdf1 = gpd.read_file(os.path.join(DATA_DIR, admin1_shp))
-    return gdf0, gdf1
-
-
-def build_country_map(ne_gdf0):
-    """构建国家映射：key 为小写 NAME_EN/ISO_A3，value 为 (emoji_flag, NAME_EN)"""
-    cmap = {}
-    for _, row in ne_gdf0.iterrows():
-        iso2 = row["ISO_A2"]
-        flag = "".join(chr(ord(ch) + 127397) for ch in iso2)
-        name = row["NAME_EN"]
-        cmap[name.lower()] = (flag, name)
-        cmap[row["ISO_A3"].lower()] = (flag, name)
-    return cmap
-
-
-def build_subregion_map(ne_gdf1):
-    """构建子区域映射：key 为小写 NAME_EN，value 为 (emoji_flag, COUNTRY_NAME, NAME_EN)"""
-    smap = {}
-    for _, row in ne_gdf1.iterrows():
-        iso2 = row["iso_a2"]
-        parent = row["admin"]
-        flag = "".join(chr(ord(ch) + 127397) for ch in iso2)
-        region = row["name"]
-        smap[region.lower()] = (flag, parent, region)
-    return smap
-
-
+# 按协议切分订阅条目
 def fetch_raw_entries(url: str) -> list[str]:
-    """按协议名:// 切分并返回非空 subscription entry 列表。"""
     r = requests.get(url)
     r.raise_for_status()
     text = r.text.replace('\r', '')
@@ -81,55 +34,65 @@ def fetch_raw_entries(url: str) -> list[str]:
     parts = re.split(proto_pattern, text, flags=re.IGNORECASE)
     return [p.strip() for p in parts if p.strip()]
 
+# 地名解析 -> 返回 country, iso2, region
+def parse_location(name: str):
+    loc = geocode(name, language='en')
+    if not loc or not loc.raw.get('address'):
+        return None, None, None
+    addr = loc.raw['address']
+    country    = addr.get('country')
+    iso2       = addr.get('country_code', '').upper()
+    region     = addr.get('state') or addr.get('province') or addr.get('region')
+    return country, iso2, region
 
-def normalize_names(old_names, country_map, sub_map):
-    """对每个旧名称生成新的 flag-country[-region]-xxxx 名称。"""
-    c_cnt = defaultdict(int)
-    s_cnt = defaultdict(int)
-    m = {}
+# 规范化名称
+def normalize_names(old_names: list[str]) -> dict[str, str]:
+    country_cnt   = defaultdict(int)
+    region_cnt    = defaultdict(int)
+    mapping       = {}
+
     for orig in old_names:
-        key = orig.lower()
-        # 子区域优先
-        for kw, (f, country, region) in sub_map.items():
-            if kw in key:
-                grp = f"{country}-{region}"
-                s_cnt[grp] += 1
-                m[orig] = f"{f}-{country}-{region}-{s_cnt[grp]:04d}"
-                break
-        else:
-            # 再匹配国家
-            for kw, (f, country) in country_map.items():
-                if kw in key:
-                    c_cnt[country] += 1
-                    m[orig] = f"{f}-{country}-{c_cnt[country]:04d}"
-                    break
+        country, iso2, region = parse_location(orig)
+        # 如果解析失败
+        if not country or not iso2:
+            country = 'Other'
+            iso2    = None
+            region  = None
+
+        if iso2:
+            flag = flag_from_iso2(iso2)
+            if region:
+                key = f"{country}-{region}"
+                region_cnt[key] += 1
+                seq = f"{region_cnt[key]:04d}"
+                new = f"{flag}-{country}-{region}-{seq}"
             else:
-                # 兜底 Other
-                c_cnt["Other"] += 1
-                m[orig] = f"🌐-Other-{c_cnt['Other']:04d}"
-    return m
+                country_cnt[country] += 1
+                seq = f"{country_cnt[country]:04d}"
+                new = f"{flag}-{country}-{seq}"
+        else:
+            country_cnt['Other'] += 1
+            seq = f"{country_cnt['Other']:04d}"
+            new = f"🌐-Other-{seq}"
 
+        mapping[orig] = new
+    return mapping
 
-def main():
-    # 加载地图数据
-    ne0, ne1 = load_ne_layers()
-    country_map = build_country_map(ne0)
-    subregion_map = build_subregion_map(ne1)
-
-    # 读取 URL 列表
-    with open(STORED_FILE, encoding="utf-8") as f:
+if __name__ == '__main__':
+    # 1. 读取 URL 列表
+    with open(STORED_FILE, encoding='utf-8') as f:
         urls = [l.strip() for l in f if l.strip()]
 
-    # 按协议分割并去重
-    raw_entries = []
+    # 2. 拉取并去重
+    entries = []
     for url in urls:
-        raw_entries.extend(fetch_raw_entries(url))
+        entries.extend(fetch_raw_entries(url))
     seen = set(); unique = []
-    for e in raw_entries:
+    for e in entries:
         if e not in seen:
             seen.add(e); unique.append(e)
 
-    # 提取新的名称映射
+    # 3. 提取旧名称
     prefixes, old_names = [], []
     for ent in unique:
         if '#' in ent:
@@ -139,13 +102,11 @@ def main():
         prefixes.append(pre)
         old_names.append(old)
 
-    name_map = normalize_names(old_names, country_map, subregion_map)
+    # 4. 规范化名称
+    name_map = normalize_names(old_names)
 
-    # 写入输出
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as fw:
+    # 5. 输出完整订阅行
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as fw:
         for pre, old in zip(prefixes, old_names):
             fw.write(f"{pre}#{name_map[old]}\n")
     print(f"✅ Generated {OUTPUT_FILE} with {len(name_map)} entries.")
-
-if __name__ == "__main__":
-    main()
