@@ -6,9 +6,7 @@ name: rename-subs
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 */5 * * *'   # 每 5 小时运行一次（UTC 时间的 0 点、5 点、10 点、15 点、20 点）
-
+  
 jobs:
   normalize:
     runs-on: ubuntu-latest
