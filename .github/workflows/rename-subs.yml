@@ -1,0 +1,43 @@
+# 将节点池订阅链接名称格式化
+# 作者：Levi
+# 强迫症专属
+# 使用方法：搭配rename-subs.py使用。默认生成文件存放在仓库根目录，初始链接全部放在stored-subs.txt里即可，生成的文件为upgrade-subs.txt。
+name: rename-subs
+
+on:
+  workflow_dispatch:
+  
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install requests geopy
+
+      - name: Run rename-subs
+        run: python .github/py/rename-subs.py
+
+
+      - name: Commit & Push
+        run: |
+          git config --global user.name  "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add upgrade-subs.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "🔄 update upgrade-subs.txt ✔ - $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
+            git pull --rebase origin main
+            git push
+          else
+            echo "No changes to commit"
+          fi

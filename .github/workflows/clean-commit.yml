@@ -1,0 +1,50 @@
+name: Hard Reset Git History
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 每天 UTC 2:00 运行
+  workflow_dispatch:      # 允许手动触发
+
+env:
+  BRANCH: main            # 目标操作分支
+
+# 关键：必须授予写入权限以允许强制推送 (Force Push)
+permissions:
+  contents: write
+
+jobs:
+  clean-history:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }} # 明确指定检出目标分支
+          fetch-depth: 0         # 获取所有历史，确保分支切换顺畅
+
+      - name: Hard reset repository
+        run: |
+          # 1. 设置 Bot 身份
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 2. 确保切换到目标分支 (以防 checkout action 处于分离头指针状态)
+          git checkout ${BRANCH}
+
+          # 3. 创建一个没有任何历史记录的孤儿分支
+          # --orphan 创建的分支没有任何父节点，但包含工作区的所有文件
+          git checkout --orphan temp_clean_branch
+
+          # 4. 添加所有文件并提交
+          git add -A
+          git commit -m "Initialize clean history: $(date)"
+
+          # 5. 删除旧的目标分支（此时旧的历史记录被切断）
+          git branch -D ${BRANCH}
+
+          # 6. 将当前的孤儿分支重命名为目标分支名
+          git branch -m ${BRANCH}
+
+          # 7. 强制推送到远程仓库，覆盖远程的历史
+          git push origin ${BRANCH} --force
